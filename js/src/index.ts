@@ -2433,10 +2433,245 @@ export class FilesResource {
   }
 }
 
+export type CountComparison =
+  | "EQUAL"
+  | "GREATER_THAN"
+  | "GREATER_THAN_OR_EQUAL"
+  | "LESS_THAN"
+  | "LESS_THAN_OR_EQUAL";
+export type PackageOrderBy =
+  | "ALPHABETICALLY"
+  | "CREATED_DATE"
+  | "PUBLISHED_DATE"
+  | "SIZE"
+  | "TOTAL_DOWNLOADS"
+  | "TOTAL_LIKES";
+export type SearchOrderSort = "ASC" | "DESC";
+export type SearchPublishDate =
+  | "LAST_DAY"
+  | "LAST_MONTH"
+  | "LAST_WEEK"
+  | "LAST_YEAR";
+export type CountFilter = {
+  count?: number | null;
+  comparison?: CountComparison | null;
+};
+export type PackagesFilter = {
+  owner?: string | null;
+  publishedBy?: string | null;
+  curated?: boolean | null;
+  deployable?: boolean | null;
+  hasBindings?: boolean | null;
+  hasCommands?: boolean | null;
+  isStandalone?: boolean | null;
+  withInterfaces?: ReadonlyArray<string | null | undefined> | null;
+  license?: string | null;
+  size?: CountFilter | null;
+  downloads?: CountFilter | null;
+  likes?: CountFilter | null;
+  createdAfter?: string | null;
+  createdBefore?: string | null;
+  lastPublishedAfter?: string | null;
+  lastPublishedBefore?: string | null;
+  publishDate?: SearchPublishDate | null;
+  orderBy?: PackageOrderBy | null;
+  sortBy?: SearchOrderSort | null;
+  count?: number | null;
+};
+
+export type WebcVersion = "V2" | "V3";
+
+export interface PackageDistribution {
+  piritaSha256Hash: string | null;
+  piritaDownloadUrl: string | null;
+  downloadUrl: string | null;
+  size: number | null;
+  piritaSize: number | null;
+  webcVersion: WebcVersion | null;
+  /** The webc manifest, as a JSON string. */
+  webcManifest: string | null;
+}
+
+export interface PackageVersion {
+  id: string;
+  version: string;
+  createdAt: string;
+  distribution: PackageDistribution;
+}
+
+export interface Package {
+  id: string;
+  packageName: string;
+  namespace: string | null;
+  lastVersion: PackageVersion | null;
+  private: boolean;
+}
+
+export interface SearchPackageVersion {
+  /** The package version's id. */
+  id: string;
+  version: string;
+  createdAt: string;
+  package: Package;
+}
+
+export type PackagesSearchInput = StackMachinePaginationParams & {
+  /** Free-text query. Empty (the default) matches everything subject to filters. */
+  query?: string;
+  /**
+   * The full registry package filter (owner, curated, downloads, likes, size,
+   * license, dates, interfaces, ordering, ...). See {@link PackagesFilter}.
+   */
+  filter?: PackagesFilter;
+};
+
+function mapPackageDistribution(distribution: any): PackageDistribution {
+  return {
+    piritaSha256Hash: distribution?.piritaSha256Hash ?? null,
+    piritaDownloadUrl: distribution?.piritaDownloadUrl ?? null,
+    downloadUrl: distribution?.downloadUrl ?? null,
+    size: distribution?.size ?? null,
+    piritaSize: distribution?.piritaSize ?? null,
+    webcVersion: distribution?.webcVersion ?? null,
+    webcManifest: distribution?.webcManifest ?? null,
+  };
+}
+
+function mapPackageVersion(version: any): PackageVersion | null {
+  if (!version) {
+    return null;
+  }
+  return {
+    id: version.id,
+    version: version.version,
+    createdAt: version.createdAt,
+    distribution: mapPackageDistribution(version.distribution),
+  };
+}
+
+function mapSearchPackageVersion(node: any): SearchPackageVersion {
+  return {
+    id: node.id,
+    version: node.version,
+    createdAt: node.createdAt,
+    package: {
+      id: node.package.id,
+      packageName: node.package.packageName,
+      namespace: node.package.namespace ?? null,
+      lastVersion: mapPackageVersion(node.package.lastVersion),
+      private: node.package.private,
+    },
+  };
+}
+
+export class PackagesResource {
+  constructor(private client: SdkContext) {}
+
+  /**
+   * Search the registry for packages. Results are the latest version of each
+   * matching package. Supports the registry's package filters (e.g. `owner`,
+   * `curated`).
+   */
+  search(
+    input: PackagesSearchInput = {},
+    options?: StackMachineRequestOptions,
+  ): StackMachineListPromise<SearchPackageVersion> {
+    return createStackMachineListPromise<
+      SearchPackageVersion,
+      PackagesSearchInput
+    >({
+      params: input,
+      options,
+      url: "/v1/packages",
+      fetchPage: async (pagination, params, requestOptions) => {
+        const result = await this.client._query<any>(
+          graphql`
+            query srcSearchPackagesQuery(
+              $searchQuery: String!
+              $first: Int
+              $after: String
+              $last: Int
+              $before: String
+              $packages: PackagesFilter
+            ) {
+              search(
+                query: $searchQuery
+                packages: $packages
+                first: $first
+                after: $after
+                last: $last
+                before: $before
+              ) {
+                edges {
+                  cursor
+                  node {
+                    __typename
+                    ... on PackageVersion {
+                      id
+                      version
+                      createdAt
+                      package {
+                        id
+                        packageName
+                        namespace
+                        private
+                        lastVersion {
+                          id
+                          version
+                          createdAt
+                          distribution {
+                            piritaSha256Hash
+                            piritaDownloadUrl
+                            downloadUrl
+                            size
+                            piritaSize
+                            webcVersion
+                            webcManifest
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+                pageInfo {
+                  hasNextPage
+                  hasPreviousPage
+                  endCursor
+                  startCursor
+                }
+                totalCount
+              }
+            }
+          `,
+          {
+            searchQuery: params.query ?? "",
+            // A non-null `packages` filter is what scopes `search` to packages,
+            // so always send at least an empty filter.
+            packages: params.filter ?? {},
+            first: pagination.first,
+            after: pagination.after,
+            last: pagination.last,
+            before: pagination.before,
+          },
+          requestOptions,
+        );
+
+        // `search` returns a union, but the `packages` filter scopes results
+        // to PackageVersion nodes.
+        return connectionToListPageData(
+          result?.search,
+          mapSearchPackageVersion,
+        );
+      },
+    });
+  }
+}
+
 export class StackMachine implements SdkContext {
   environment: Environment;
   deployments: DeploymentsResource;
   apps: DeployAppsResource;
+  packages: PackagesResource;
   files: FilesResource;
   readonly apiUrl: string;
   readonly timeout: number;
@@ -2466,6 +2701,7 @@ export class StackMachine implements SdkContext {
     });
     this.deployments = new DeploymentsResource(this, this.files);
     this.apps = new DeployAppsResource(this, this.deployments);
+    this.packages = new PackagesResource(this);
   }
 
   static async init(settings: StackMachineRegistryConfig) {
