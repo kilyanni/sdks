@@ -625,3 +625,66 @@ mutation srcDeleteSshAuthorizedKeyMutation($input: DeleteSshAuthorizedKeyInput!)
   }
 }
 """
+
+PACKAGE_VERSION_FIELDS = """
+id
+version
+createdAt
+package {
+  id
+  packageName
+  namespace
+  private
+  lastVersion {
+    id
+    version
+    createdAt
+    distribution {
+      piritaSha256Hash
+      piritaDownloadUrl
+      downloadUrl
+      size
+      piritaSize
+      webcVersion
+      webcManifest
+    }
+  }
+}
+"""
+
+SEARCH_PACKAGES_QUERY = f"""
+query srcSearchPackagesQuery(
+  $query: String!
+  $first: Int
+  $after: String
+  $last: Int
+  $before: String
+  $packages: PackagesFilter
+) {{
+  search(
+    query: $query
+    packages: $packages
+    first: $first
+    after: $after
+    last: $last
+    before: $before
+  ) {{
+    edges {{
+      cursor
+      node {{
+        __typename
+        ... on PackageVersion {{
+          {PACKAGE_VERSION_FIELDS}
+        }}
+      }}
+    }}
+    pageInfo {{
+      hasNextPage
+      hasPreviousPage
+      endCursor
+      startCursor
+    }}
+    totalCount
+  }}
+}}
+"""

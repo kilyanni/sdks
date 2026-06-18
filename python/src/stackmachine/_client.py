@@ -18,6 +18,7 @@ from ._uploads import SyncUploader
 from .resources.apps import DeployAppsResource
 from .resources.deployments import DeploymentsResource
 from .resources.files import FilesResource
+from .resources.packages import PackagesResource
 
 
 class StackMachine:
@@ -65,6 +66,7 @@ class StackMachine:
         self.deployments = DeploymentsResource(self)
         self.apps = DeployAppsResource(self, self.deployments)
         self.files = FilesResource(self, SyncUploader(self._transport))
+        self.packages = PackagesResource(self)
 
     @classmethod
     def init(

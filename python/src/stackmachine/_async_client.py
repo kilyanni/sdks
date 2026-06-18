@@ -18,6 +18,7 @@ from ._uploads import AsyncUploader
 from .resources.apps import AsyncDeployAppsResource
 from .resources.deployments import AsyncDeploymentsResource
 from .resources.files import AsyncFilesResource
+from .resources.packages import AsyncPackagesResource
 
 
 class AsyncStackMachine:
@@ -65,6 +66,7 @@ class AsyncStackMachine:
         self.deployments = AsyncDeploymentsResource(self)
         self.apps = AsyncDeployAppsResource(self, self.deployments)
         self.files = AsyncFilesResource(self, AsyncUploader(self._transport))
+        self.packages = AsyncPackagesResource(self)
 
     @classmethod
     def init(
